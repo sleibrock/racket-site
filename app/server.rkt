@@ -3,13 +3,19 @@
 (require racket/tcp)
 (require racket/port)
 (require racket/string)
-(require net/head)
-(require net/unihead)
+
+(require "logger.rkt")
 
 (provide serve)
 
+
+(DEBUG-LEVEL WARN)
+
 ;;;;; top-level constants
 (define temp-port 3000)
+
+
+(define REQ-COUNTER (make-parameter 0))
 
 
 ;;;;; functions
@@ -20,7 +26,7 @@
   (define (inner in-port accum)
     (define input-datum (read-line in-port))
     (cond
-      [(eof-object? input-datum) (error "Premature EOF")]
+      [(eof-object? input-datum) accum]
       [else (begin 
               (define line (string-replace input-datum "\r" ""))
               (if (string=? "" line)
@@ -32,7 +38,7 @@
 
 (: accept-and-handle (-> TCP-Listener Void))
 (define (accept-and-handle listener)
-  (displayln "Running accept-and-handle")
+  (info "Running accept-and-handle")
   (define cust (make-custodian))
   (parameterize ([current-custodian cust])
     
@@ -41,28 +47,37 @@
               (handle in out)
               (close-input-port in)
               (close-output-port out))))
-
-    (thread (λ ()
-              (sleep 10)
-              (custodian-shutdown-all cust)))
+  
+  ; shut down all sub-threads after 10 seconds
+  (thread (λ ()
+            (sleep 10)
+            (custodian-shutdown-all cust)))
   (void))
 
 
-(: create-header-hash (-> (Listof String) Void))
+
+(: create-header-hash (-> (Listof String)
+                          (Mutable-HashTable String String)))
 (define (create-header-hash header-list)
+  (: header-hash (Mutable-HashTable String String))
   (define header-hash (make-hash))
-  (void))
+  (hash-set! header-hash "top" (car header-list))
+  (for-each (λ ([line : String])
+              (define splitv (string-split line ":"))
+              (hash-set! header-hash (car splitv) (car (cdr splitv))))
+            (cdr header-list))
+  (values header-hash))
   
 
 
 (: handle (-> Input-Port Output-Port Void))
 (define (handle in out)
-  (displayln "Received in/out ports")
-  (define stuff (read-until-empty-lines in))
+  (info "Received in/out ports")
+  (define stuff  (read-until-empty-lines in))
   (define header (string-join stuff "\n"))
 
   (displayln "\nHEADER ---------------")
-  (displayln header)
+  (displayln (create-header-hash stuff))
   (displayln "----------------------\n")
 
   (display "HTTP/1.0 200 Okay\r\n" out)
@@ -71,15 +86,16 @@
 
 (: serve (-> Void))
 (define (serve)
+  (info "Starting up server")
   (define main-cust (make-custodian))
   (parameterize ([current-custodian main-cust])
     (define listener (tcp-listen temp-port 5 #t))
 
     (: loop (-> Void))
     (define (loop)
-      (displayln "starting accept-and-handle")
+      (info "starting accept-and-handle")
       (accept-and-handle listener)
-      (displayln "finished accept-and-handle")
+      (info "finished accept-and-handle")
       (loop))
     
     (define t (thread loop))
