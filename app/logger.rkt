@@ -19,7 +19,8 @@
 (define FORMAT-STR "[\033[38;5;~am~a\033[0m] ~a")
 
 
-(: create-log-wrapper (-> String Integer Integer (-> String Void)))
+(: create-log-wrapper (-> String Integer Integer
+                          (-> String Void)))
 (define (create-log-wrapper name num-filter color)
   (λ (msg)
     (when (<= num-filter (DEBUG-LEVEL))

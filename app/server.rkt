@@ -1,28 +1,35 @@
-#lang typed/racket/base
+#lang racket/base
 
 (require racket/tcp)
 (require racket/port)
 (require racket/string)
+(require racket/file)
+
+(require xml)
 
 (require "logger.rkt")
 
 (provide serve)
 
 
+; set the debug level to maximum
 (DEBUG-LEVEL WARN)
+
 
 ;;;;; top-level constants
 (define temp-port 3000)
 
 
+(define BASE-FOLDER (make-parameter "public"))
+
+
 (define REQ-COUNTER (make-parameter 0))
 
 
+
 ;;;;; functions
-(: read-until-empty-lines (-> Input-Port (Listof String)))
 (define (read-until-empty-lines in-port)
 
-  (: inner (-> Input-Port (Listof String) (Listof String)))
   (define (inner in-port accum)
     (define input-datum (read-line in-port))
     (cond
@@ -36,7 +43,6 @@
   
 
 
-(: accept-and-handle (-> TCP-Listener Void))
 (define (accept-and-handle listener)
   (info "Running accept-and-handle")
   (define cust (make-custodian))
@@ -56,42 +62,90 @@
 
 
 
-(: create-header-hash (-> (Listof String)
-                          (Mutable-HashTable String String)))
 (define (create-header-hash header-list)
-  (: header-hash (Mutable-HashTable String String))
   (define header-hash (make-hash))
-  (hash-set! header-hash "top" (car header-list))
-  (for-each (λ ([line : String])
+  (define top-split (string-split (car header-list) " "))
+  (hash-set! header-hash "method"  (car top-split))
+  (hash-set! header-hash "route"   (car (cdr top-split)))
+  (hash-set! header-hash "httpver" (car (cdr (cdr top-split))))
+  (for-each (λ (line)
               (define splitv (string-split line ":"))
               (hash-set! header-hash (car splitv) (car (cdr splitv))))
             (cdr header-list))
   (values header-hash))
   
 
+; Route the request and write data to the out port
+; Routes can result in many things that have to be accounted for:
+; 1. Images or Assets
+;    When someone requests an image, the path should be looked up in a local
+;    image folder in the Racket server, something like "/public/images"
+;    If it's in there, read the bytes and write the bytearray to the output stream
+;    If not, yield a 404 message
+; 2. A Page
+;    Just like images, files should be stored in "/public". Files should be written
+;    in Racket, such that /path/to/file mirrors /path/to/file.rkt
+;    if no match exists, return a 404 error
+(define (route header output)
+  (unless (hash-has-key? header "route")
+    (error "No route given in header"))
 
-(: handle (-> Input-Port Output-Port Void))
+  (define desired-route (hash-ref header "route"))
+
+  (cond
+    [(string=? desired-route "/") (page-lookup "/index" output)]
+    [else (page-lookup desired-route output)])
+
+  (void))
+
+
+(define (page-lookup desired-path output)
+  (define file-path (string->path (string-append (BASE-FOLDER) desired-path ".rkt")))
+  (if (file-exists? file-path)
+      (serve-file file-path output)
+      (do-404 output))
+  (void))
+                    
+
+(define (serve-file file-path output)
+  (display "HTTP/1.0 200 Okay\r\n" output)
+  (display "Server: k\r\nContent-Type: text/html\r\n\r\n" output)
+  (display (xexpr->string (car (file->list file-path))) output))
+  
+
+  
+(define (default-page output)
+  (display "HTTP/1.0 200 Okay\r\n" output)
+  (display "Server: k\r\nContent-Type: text/html\r\n\r\n" output)
+  (display "<html><body>Hello there</body></html>" output))
+
+
+(define (do-404 output)
+  (display "HTTP/1.0 404 Not Found" output)
+  (display "Server: k\r\nContent-Type: text/html\r\n\r\n" output)
+  (display "<html><body>The requested content was not found</body></html>" output))
+
+
+; The handle should create a header hash and dispatch it properly
+; 
 (define (handle in out)
   (info "Received in/out ports")
   (define stuff  (read-until-empty-lines in))
-  (define header (string-join stuff "\n"))
 
   (displayln "\nHEADER ---------------")
   (displayln (create-header-hash stuff))
   (displayln "----------------------\n")
 
-  (display "HTTP/1.0 200 Okay\r\n" out)
-  (display "Server: k\r\nContent-Type: text/html\r\n\r\n" out)
-  (display "<html><body>Hello there</body></html>" out))
+  (info "Routing the request")
+  (route (create-header-hash stuff) out))
 
-(: serve (-> Void))
+
 (define (serve)
   (info "Starting up server")
   (define main-cust (make-custodian))
   (parameterize ([current-custodian main-cust])
     (define listener (tcp-listen temp-port 5 #t))
 
-    (: loop (-> Void))
     (define (loop)
       (info "starting accept-and-handle")
       (accept-and-handle listener)
