@@ -9,27 +9,22 @@
 
 (require "logger.rkt")
 
-(provide serve)
+(provide serve
+         SERVER-PORT
+         )
 
 
-; set the debug level to maximum
-(DEBUG-LEVEL WARN)
-
-
-;;;;; top-level constants
-(define temp-port 3000)
-
-
+;;;;; top-level constants/params
+(define SERVER-PORT (make-parameter 3000))
 (define BASE-FOLDER (make-parameter "public"))
-
-
 (define REQ-COUNTER (make-parameter 0))
 
 
-
 ;;;;; functions
-(define (read-until-empty-lines in-port)
 
+; Read a port until empty lines appear
+; This returns all lines that aren't empty of an input-port
+(define (read-until-empty-lines in-port)
   (define (inner in-port accum)
     (define input-datum (read-line in-port))
     (cond
@@ -40,9 +35,11 @@
                   accum
                   (inner in-port (cons line accum))))]))
     (reverse (inner in-port '())))
-  
 
 
+; Accept and create a new thread for each incoming TCP connection
+; The new thread will process the response and view serving
+; After 10 seconds, all sub-threads of that request are killed
 (define (accept-and-handle listener)
   (info "Running accept-and-handle")
   (define cust (make-custodian))
@@ -113,13 +110,6 @@
   (display (xexpr->string (car (file->list file-path))) output))
   
 
-  
-(define (default-page output)
-  (display "HTTP/1.0 200 Okay\r\n" output)
-  (display "Server: k\r\nContent-Type: text/html\r\n\r\n" output)
-  (display "<html><body>Hello there</body></html>" output))
-
-
 (define (do-404 output)
   (display "HTTP/1.0 404 Not Found" output)
   (display "Server: k\r\nContent-Type: text/html\r\n\r\n" output)
@@ -141,10 +131,10 @@
 
 
 (define (serve)
-  (info "Starting up server")
+  (info (format "Starting up server on ~a" (SERVER-PORT)))
   (define main-cust (make-custodian))
   (parameterize ([current-custodian main-cust])
-    (define listener (tcp-listen temp-port 5 #t))
+    (define listener (tcp-listen (SERVER-PORT) 5 #t))
 
     (define (loop)
       (info "starting accept-and-handle")

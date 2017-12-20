@@ -6,6 +6,9 @@
   (h1 "What is this site?")
   (p "This is a website I created written entirely in Racket, after being frustrated for years of having to use Python for everything.")
 
+  (h1 "Who are you?")
+  (p "I'm Steve. I've been a programmer for most of my life, having started programming back in 2005 with PHP and Apache servers. I started using Python around 2006, and now I just love making stuff for fun.")
+
   (h1 "Why Racket?")
   (p "Racket is a fun language that allows you to explore creative solutions to problems. It also has great concurrency with their green threading model. Racket is a dialect of Scheme, so if you know how to write Lisp or Scheme, you'll feel right at home with Racket.")
 
